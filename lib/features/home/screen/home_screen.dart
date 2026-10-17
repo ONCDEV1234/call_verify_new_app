@@ -1,11 +1,13 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 
 import '../../../core/route/app_routes.dart';
+import '../../dashboard/controller/dashboard_controller.dart';
+import '../../dashboard/model/dashboard_model.dart';
 import '../../login/controller/auth_service.dart';
 import '../../widgets/project_id_dialog.dart';
+
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -22,54 +24,6 @@ class HomeScreen extends StatelessWidget {
   static const Color _amber = Color(0xFFF59E0B);
   static const Color _blue = Color(0xFF2563EB);
 
-  // ---------------- DUMMY DATA ----------------
-  static const int _totalCalls = 24;
-  static const int _receivedCalls = 18;
-  static const int _rejectedCalls = 6;
-
-  static final List<_RecentCall> _recentCalls = [
-    _RecentCall(
-      number: '+91 98765 43210',
-      type: 'Incoming',
-      time: '10:24 AM',
-      status: 'Verified',
-      typeColor: _green,
-      typeIcon: Icons.call_received_rounded,
-    ),
-    _RecentCall(
-      number: '+91 91234 56789',
-      type: 'Rejected',
-      time: '09:12 AM',
-      status: 'Rejected',
-      typeColor: _primaryRed,
-      typeIcon: Icons.call_end_rounded,
-    ),
-    _RecentCall(
-      number: '+91 87654 32109',
-      type: 'Outgoing',
-      time: '08:33 AM',
-      status: 'Verified',
-      typeColor: _blue,
-      typeIcon: Icons.call_made_rounded,
-    ),
-    _RecentCall(
-      number: '+91 99887 66554',
-      type: 'Incoming',
-      time: '07:50 AM',
-      status: 'Verified',
-      typeColor: _green,
-      typeIcon: Icons.call_received_rounded,
-    ),
-    _RecentCall(
-      number: '+91 98761 23456',
-      type: 'Rejected',
-      time: '06:18 AM',
-      status: 'Rejected',
-      typeColor: _primaryRed,
-      typeIcon: Icons.call_end_rounded,
-    ),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final auth = Get.find<AuthService>();
@@ -78,46 +32,58 @@ class HomeScreen extends StatelessWidget {
     final name = (user?.name.isNotEmpty ?? false) ? user!.name : 'User';
     final mobile = user?.mobile ?? '';
 
+    final DashboardController controller = Get.isRegistered<DashboardController>()
+        ? Get.find<DashboardController>()
+        : Get.put(DashboardController());
+
+    if (controller.dashboard.value == null && !controller.isLoading.value) {
+      controller.fetchDashboard();
+    }
+
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
         top: false,
-        child: SingleChildScrollView(
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildTopBanner(name, mobile),
+        child: RefreshIndicator(
+          onRefresh: () => controller.fetchDashboard(),
+          color: _primaryRed,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
 
+                _buildTopBanner(name, mobile),
 
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.w),
-                child: _buildVerifyCallCard(),
-              ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.w),
+                  child: _buildVerifyCallCard(),
+                ),
 
-              SizedBox(height: 15.h),
+                SizedBox(height: 15.h),
 
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.w),
-                child: _buildTodayOverview(),
-              ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.w),
+                  child: Obx(() => _buildTodayOverview(controller)),
+                ),
 
-              SizedBox(height: 20.h),
+                SizedBox(height: 20.h),
 
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.w),
-                child: _buildRecentCalls(),
-              ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.w),
+                  child: Obx(() => _buildRecentCalls(controller)),
+                ),
 
-              SizedBox(height: 24.h),
-            ],
+                SizedBox(height: 24.h),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // TOP BANNER
   Widget _buildTopBanner(String name, String mobile) {
     return SizedBox(
       width: double.infinity,
@@ -130,14 +96,11 @@ class HomeScreen extends StatelessWidget {
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
             errorBuilder: (context, error, stackTrace) {
-              debugPrint('TOP BANNER ERROR: $error');
               return Container(color: _primaryRed);
             },
           ),
-
-          // Bell icon
           Positioned(
-            top: 45.h,
+            top: 60.h,
             right: 8.w,
             child: Container(
               width: 40.w,
@@ -177,8 +140,6 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-
-          // Name + Mobile + Online pill
           Positioned(
             left: 20.w,
             top: 110.h,
@@ -258,7 +219,6 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // VERIFY CALL CARD
   Widget _buildVerifyCallCard() {
     return Container(
       width: double.infinity,
@@ -290,11 +250,9 @@ class HomeScreen extends StatelessWidget {
               fit: BoxFit.cover,
               alignment: Alignment.centerLeft,
               errorBuilder: (context, error, stackTrace) {
-                debugPrint('TOP CARD ERROR: $error');
                 return Container(color: Colors.white);
               },
             ),
-
             Positioned(
               right: 14.w,
               top: 0,
@@ -368,8 +326,42 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // TODAY'S OVERVIEW
-  Widget _buildTodayOverview() {
+  Widget _buildTodayOverview(DashboardController controller) {
+    if (controller.isLoading.value) {
+      return _buildLoaderCard(height: 200.h);
+    }
+
+    if (controller.errorMessage.value.isNotEmpty) {
+      return _buildErrorCard(
+        message: controller.errorMessage.value,
+        onRetry: () => controller.fetchDashboard(),
+      );
+    }
+
+    final data = controller.dashboard.value;
+    if (data == null) {
+      return const SizedBox.shrink();
+    }
+
+    final total = data.totalCalls;
+    final accepted = data.acceptedCalls;
+    final rejected = data.rejectedCalls;
+
+    final totalProgress = 1.0;
+    final acceptedProgress = total == 0 ? 0.0 : accepted / total;
+    final rejectedProgress = total == 0 ? 0.0 : rejected / total;
+
+    // Filter label
+    String filterLabel = 'Today';
+    if (controller.filterType.value == DashboardFilterType.date) {
+      final d = controller.selectedDate.value;
+      filterLabel = '${d.day}/${d.month}/${d.year}';
+    } else if (controller.filterType.value == DashboardFilterType.range) {
+      filterLabel = 'Range';
+    } else {
+      filterLabel = controller.selectedDay.value == 'today' ? 'Today' : 'Yesterday';
+    }
+
     return Container(
       padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(
@@ -417,7 +409,7 @@ class HomeScreen extends StatelessWidget {
                     ),
                     SizedBox(width: 5.w),
                     Text(
-                      'Today',
+                      filterLabel,
                       style: TextStyle(
                         fontSize: 12.sp,
                         fontWeight: FontWeight.w600,
@@ -440,26 +432,26 @@ class HomeScreen extends StatelessWidget {
             children: [
               Expanded(
                 child: _buildCircularStat(
-                  value: _totalCalls,
+                  value: total,
                   label: 'Total',
                   color: _primaryRed,
-                  progress: 0.75,
+                  progress: totalProgress,
                 ),
               ),
               Expanded(
                 child: _buildCircularStat(
-                  value: _receivedCalls,
+                  value: accepted,
                   label: 'Received',
                   color: _green,
-                  progress: 0.62,
+                  progress: acceptedProgress,
                 ),
               ),
               Expanded(
                 child: _buildCircularStat(
-                  value: _rejectedCalls,
+                  value: rejected,
                   label: 'Rejected',
                   color: _primaryRed,
-                  progress: 0.28,
+                  progress: rejectedProgress,
                 ),
               ),
             ],
@@ -534,8 +526,13 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // RECENT CALLS
-  Widget _buildRecentCalls() {
+  Widget _buildRecentCalls(DashboardController controller) {
+    if (controller.isLoading.value) {
+      return _buildLoaderCard(height: 300.h);
+    }
+
+    final calls = controller.dashboard.value?.recentCalls ?? [];
+
     return Container(
       padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(
@@ -589,66 +586,114 @@ class HomeScreen extends StatelessWidget {
           ),
           SizedBox(height: 14.h),
 
-          ...List.generate(_recentCalls.length, (i) {
-            final call = _recentCalls[i];
-            final isLast = i == _recentCalls.length - 1;
-            return Column(
-              children: [
-                _buildCallRow(call),
-                if (!isLast)
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8.h),
-                    child: const Divider(height: 1, color: Color(0xFFEEEEEE)),
-                  ),
-              ],
-            );
-          }),
+          if (calls.isEmpty)
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: 20.h),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.phone_missed_rounded, size: 40.sp, color: _borderGrey),
+                    SizedBox(height: 8.h),
+                    Text('No recent calls found', style: TextStyle(fontSize: 13.sp, color: _textGrey)),
+                  ],
+                ),
+              ),
+            )
+          else
+            ...List.generate(calls.length, (i) {
+              final call = calls[i];
+              final isLast = i == calls.length - 1;
+              return Column(
+                children: [
+                  _buildCallRow(call),
+                  if (!isLast)
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.h),
+                      child: const Divider(height: 1, color: Color(0xFFEEEEEE)),
+                    ),
+                ],
+              );
+            }),
         ],
       ),
     );
   }
 
-  Widget _buildCallRow(_RecentCall call) {
-    final isVerified = call.status == 'Verified';
-    final statusColor = isVerified ? _green : _primaryRed;
-    final statusBg = isVerified
-        ? _green.withOpacity(0.10)
-        : _primaryRed.withOpacity(0.10);
+  Widget _buildCallRow(RecentCallModel call) {
+    // 1. Status ke hisaab se color decide karo
+    final isAccepted = call.isAccepted;
+    final statusColor = isAccepted ? _green : _primaryRed;
+    final statusBg = isAccepted ? _green.withOpacity(0.10) : _primaryRed.withOpacity(0.10);
+
+    // 2. Time format karo (Agar null hai toh 'Time unavailable' dikhao)
+    String timeStr = 'Time unavailable';
+    if (call.callTime != null) {
+      final t = call.callTime!;
+      final hour = t.hour > 12 ? t.hour - 12 : (t.hour == 0 ? 12 : t.hour);
+      final min = t.minute.toString().padLeft(2, '0');
+      final ampm = t.hour >= 12 ? 'PM' : 'AM';
+      timeStr = '$hour:$min $ampm';
+    }
+
+    // 3. Duration format karo (seconds mein)
+    final durationStr = '${call.callDuration}s';
+
+    // 4. Marked Status format karo (API se aayega, e.g., "Correct", "Not Required")
+    final markedStatus = call.userStatus.isNotEmpty ? call.userStatus : 'Not specified';
 
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center, // Text ko vertically center rakhne ke liye
       children: [
+        // 👇 LEFT ICON (Status ke hisaab se Red ya Green)
         Container(
           width: 42.w,
           height: 42.w,
           decoration: BoxDecoration(
-            color: call.typeColor,
+            color: statusColor, // Red for Rejected, Green for Accepted
             shape: BoxShape.circle,
           ),
           child: Icon(
-            call.typeIcon,
+            // Image mein phone icon use hua hai, aap call_rounded ya call_end_rounded use kar sakte hain
+            isAccepted ? Icons.call_rounded : Icons.call_end_rounded,
             color: Colors.white,
             size: 20.sp,
           ),
         ),
+
         SizedBox(width: 12.w),
 
+        // 👇 CENTER TEXT (Number, Time+Duration, Marked Status)
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Number
               Text(
-                call.number,
+                call.phone,
                 style: TextStyle(
                   fontSize: 14.sp,
                   fontWeight: FontWeight.w700,
                   color: _textBlack,
                 ),
               ),
-              SizedBox(height: 2.h),
+              SizedBox(height: 3.h),
+
+              // Time • Duration
               Text(
-                '${call.type}  •  ${call.time}',
+                '$timeStr • $durationStr',
                 style: TextStyle(
-                  fontSize: 11.5.sp,
+                  fontSize: 11.sp,
+                  color: _textGrey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              SizedBox(height: 3.h),
+
+              // Marked: Status
+              Text(
+                'Marked: $markedStatus',
+                style: TextStyle(
+                  fontSize: 11.sp,
                   color: _textGrey,
                   fontWeight: FontWeight.w500,
                 ),
@@ -657,6 +702,7 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
 
+        // 👇 RIGHT STATUS PILL (Rejected / Accepted)
         Container(
           padding: EdgeInsets.symmetric(
             horizontal: 12.w,
@@ -667,7 +713,7 @@ class HomeScreen extends StatelessWidget {
             borderRadius: BorderRadius.circular(20.r),
           ),
           child: Text(
-            call.status,
+            call.classification, // "Rejected" ya "Accepted"
             style: TextStyle(
               fontSize: 11.sp,
               fontWeight: FontWeight.w700,
@@ -675,41 +721,69 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
         ),
-        SizedBox(width: 4.w),
-
-        Icon(
-          Icons.more_vert_rounded,
-          size: 18.sp,
-          color: _textGrey,
-        ),
       ],
     );
   }
 
-  // HELPERS
-  String _greeting() {
-    final h = DateTime.now().hour;
-    if (h < 12) return 'Good Morning';
-    if (h < 17) return 'Good Afternoon';
-    return 'Good Evening';
+  Widget _buildLoaderCard({required double height}) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: const Center(
+        child: CircularProgressIndicator(color: _primaryRed),
+      ),
+    );
   }
-}
 
-// DATA HOLDERS
-class _RecentCall {
-  final String number;
-  final String type;
-  final String time;
-  final String status;
-  final Color typeColor;
-  final IconData typeIcon;
-
-  _RecentCall({
-    required this.number,
-    required this.type,
-    required this.time,
-    required this.status,
-    required this.typeColor,
-    required this.typeIcon,
-  });
+  Widget _buildErrorCard({
+    required String message,
+    required VoidCallback onRetry,
+  }) {
+    return Container(
+      padding: EdgeInsets.all(16.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.error_outline_rounded, color: _primaryRed, size: 40.sp),
+          SizedBox(height: 8.h),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.sp, color: _textGrey),
+          ),
+          SizedBox(height: 12.h),
+          TextButton(
+            onPressed: onRetry,
+            child: Text(
+              'Retry',
+              style: TextStyle(
+                color: _primaryRed,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

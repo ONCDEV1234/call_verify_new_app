@@ -30,13 +30,10 @@ class DashboardController extends GetxController {
   final Rx<DashboardFilterType> filterType =
       DashboardFilterType.day.obs;
 
-  // Day tab dropdown: today / yesterday
   final RxString selectedDay = 'today'.obs;
 
-  // Date tab
   final Rx<DateTime> selectedDate = DateTime.now().obs;
 
-  // Range tab
   final Rx<DateTime> rangeStart = DateTime.now().obs;
   final Rx<DateTime> rangeEnd = DateTime.now().obs;
 
@@ -64,10 +61,7 @@ class DashboardController extends GetxController {
     }
   }
 
-  /// Returns a relative URL with the selected filter query.
-  ///
-  /// ApiProvider.get() adds ApiProvider.baseUrl, so this method
-  /// must NOT return a full URL.
+
   String _urlWithQuery(String path) {
     return Uri(
       path: path,
@@ -80,7 +74,6 @@ class DashboardController extends GetxController {
     errorMessage.value = '';
 
     try {
-      // _api.get() adds the base URL internally.
       final response = await _api.get(
         _urlWithQuery(_dashboardPath),
       );
@@ -113,7 +106,6 @@ class DashboardController extends GetxController {
   }
 
   Future<void> chooseRange(DateTime start, DateTime end) async {
-    // Keep start <= end for the API.
     rangeStart.value = start.isBefore(end) ? start : end;
     rangeEnd.value = start.isBefore(end) ? end : start;
 
@@ -128,7 +120,6 @@ class DashboardController extends GetxController {
     isDownloadingPdf.value = true;
 
     try {
-      // PDF uses direct http.get(), so build the full URL exactly once.
       final uri = Uri.parse(
         '${ApiProvider.baseUrl}${_urlWithQuery(_pdfPath)}',
       );

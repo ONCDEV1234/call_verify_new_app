@@ -14,9 +14,6 @@ class CallLog extends GetxService with WidgetsBindingObserver {
   static const EventChannel _eventChannel =
   EventChannel('verify_call/call_tracking_events');
 
-  // MainActivity.kt must implement these MethodChannel methods:
-  // makeCall, getPersistedCallState, and clearPersistedCallState.
-  // The EventChannel should emit: connected, ended, and unanswered.
 
   StreamSubscription<dynamic>? _callStateSubscription;
 
@@ -54,27 +51,19 @@ class CallLog extends GetxService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _listenToNativeCallEvents();
 
-    // Check whether Android retained a call session from before
-    // Flutter started or was recreated.
     unawaited(_restorePersistedCallState());
   }
 
-  // ---------------------------------------------------------------------------
-  // Flutter lifecycle
-  // ---------------------------------------------------------------------------
+
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // The user may have returned from the system phone app, or Android may
-      // have recreated our Flutter Activity/process.
+
       unawaited(_restorePersistedCallState());
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Native call event stream
-  // ---------------------------------------------------------------------------
 
   void _listenToNativeCallEvents() {
     _callStateSubscription =
@@ -108,9 +97,6 @@ class CallLog extends GetxService with WidgetsBindingObserver {
         );
   }
 
-  // ---------------------------------------------------------------------------
-  // Start a call
-  // ---------------------------------------------------------------------------
 
   Future<bool> startCall({
     required int responseId,
@@ -141,8 +127,6 @@ class CallLog extends GetxService with WidgetsBindingObserver {
     processStartedAt.value = now;
     processDurationSeconds.value = 0;
 
-    // This timestamp is the call attempt time, not necessarily the time
-    // the other party answered.
     isCallInProgress.value = true;
     _startProcessTimer();
 
@@ -216,9 +200,6 @@ class CallLog extends GetxService with WidgetsBindingObserver {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Restore call state saved by Android
-  // ---------------------------------------------------------------------------
 
   Future<void> _restorePersistedCallState() async {
     if (_recoveringNativeState || _postCallOpened) return;
@@ -247,8 +228,7 @@ class CallLog extends GetxService with WidgetsBindingObserver {
         return;
       }
 
-      // Only open the form when Android says this saved call has ended.
-      // A pending/connected call may still be in progress.
+
       if (status != 'ended') {
         if (status == 'pending' || status == 'connected') {
           currentResponseId.value = responseId;
@@ -267,8 +247,7 @@ class CallLog extends GetxService with WidgetsBindingObserver {
         return;
       }
 
-      // If the live event already completed the call, don't process the
-      // persisted copy a second time.
+
       if (isCallEnded.value) return;
 
       _durationTimer?.cancel();

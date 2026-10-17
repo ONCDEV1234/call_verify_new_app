@@ -1,5 +1,4 @@
 
-// AUTH USER — single source of truth for a logged-in user
 class AuthUser {
   final int id;
   final String name;
@@ -50,14 +49,12 @@ class AuthUser {
   }
 }
 
-// OTP FLOW
 
 enum OtpFlow {
   login,
   signup,
 }
 
-// MOBILE SIGNUP REQUEST
 
 class MobileSignupRequest {
   final String name;
@@ -89,7 +86,6 @@ class MobileSignupRequest {
 }
 
 
-// MOBILE OTP RESPONSE
 
 class MobileOtpResponse {
   final bool success;
@@ -111,7 +107,6 @@ class MobileOtpResponse {
   }
 }
 
-// MOBILE OTP VERIFY REQUEST
 
 class MobileOtpVerifyRequest {
   final String mobile;
@@ -130,7 +125,6 @@ class MobileOtpVerifyRequest {
   }
 }
 
-// MOBILE LOGIN RESPONSE
 
 class MobileLoginResponse {
   final bool success;
@@ -164,7 +158,6 @@ class MobileLoginResponse {
   }
 }
 
-// SIGNUP VERIFY RESPONSE
 
 class MobileSignupResponse {
   final bool success;
