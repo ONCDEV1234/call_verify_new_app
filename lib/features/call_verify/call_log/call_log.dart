@@ -374,27 +374,9 @@ class CallLog extends GetxService with WidgetsBindingObserver {
   // ---------------------------------------------------------------------------
 
   void _handleCallEnded() {
-    // Android may deliver this event after the Flutter process was recreated.
-    // Recover the persisted session in that case.
-    if (!isCallInProgress.value) {
-      unawaited(_restorePersistedCallState());
-      return;
-    }
-    if (isCallEnded.value) return;
-
-    _endedAt = DateTime.now();
-    callEndAt.value = _endedAt;
-
-    if (isCallConnected.value && _connectedAt != null) {
-      callDurationSeconds.value = _endedAt!
-          .difference(_connectedAt!)
-          .inSeconds
-          .clamp(0, 1 << 31);
-    } else {
-      callDurationSeconds.value = 0;
-    }
-
-    _finishCall();
+    // Use Android's persisted call-log result as the source of truth. OFFHOOK can
+    // include dialing/ringing, so Flutter must not calculate final duration from it.
+    unawaited(_restorePersistedCallState());
   }
 
   void _handleCallUnanswered() {

@@ -30,7 +30,11 @@ class MainActivity : FlutterActivity() {
         private const val KEY_SESSION = "pending_call_session"
 
         private const val TAG = "CallTracking"
-        private const val CALL_LOG_FALLBACK_DELAY_MS = 2500L
+        // Try to resolve the completed call quickly, then retry briefly if
+        // Android has not written the call-log entry yet.
+        private const val CALL_LOG_INITIAL_DELAY_MS = 200L
+        private const val CALL_LOG_RETRY_DELAY_MS = 250L
+        private const val CALL_LOG_MAX_WAIT_MS = 2500L
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -47,6 +51,7 @@ class MainActivity : FlutterActivity() {
     private var pendingCallResult: MethodChannel.Result? = null
 
     private var callEndResolutionScheduled = false
+    private var callEndResolutionStartedAt = 0L
     private val pendingEvents = mutableListOf<Map<String, String>>()
 
     private val recoveryPrefs: SharedPreferences
@@ -120,7 +125,8 @@ class MainActivity : FlutterActivity() {
 
         val requiredPermissions = arrayOf(
             Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_PHONE_STATE
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CALL_LOG
         )
         val missingPermissions = requiredPermissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -146,11 +152,14 @@ class MainActivity : FlutterActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) ==
                     PackageManager.PERMISSION_GRANTED
         val phoneStatePermissionGranted = hasPhoneStatePermission()
+        val callLogPermissionGranted =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) ==
+                    PackageManager.PERMISSION_GRANTED
 
-        if (!callPermissionGranted || !phoneStatePermissionGranted) {
+        if (!callPermissionGranted || !phoneStatePermissionGranted || !callLogPermissionGranted) {
             pendingCallResult?.error(
                 "PERMISSION_DENIED",
-                "Allow Phone and Phone State permissions to place and track calls.",
+                "Allow Phone, Phone State, and Call Log permissions to track answered-call duration accurately.",
                 null
             )
             clearPendingCall()
@@ -274,12 +283,14 @@ class MainActivity : FlutterActivity() {
 
     private fun scheduleCallEndResolution() {
         if (callEndResolutionScheduled) return
+
         callEndResolutionScheduled = true
+        callEndResolutionStartedAt = System.currentTimeMillis()
 
         mainHandler.postDelayed({
             callEndResolutionScheduled = false
             resolveCallEnd()
-        }, CALL_LOG_FALLBACK_DELAY_MS)
+        }, CALL_LOG_INITIAL_DELAY_MS)
     }
 
     private fun resolveCallEnd() {
@@ -311,22 +322,55 @@ class MainActivity : FlutterActivity() {
             null
         }
 
-        if (match != null && match.durationSeconds > 0L) {
-            val callEnd = match.dateMillis
-            val callStart = callEnd - match.durationSeconds * 1000L
-            persistCallEnded(
-                connected = true,
-                startMillis = callStart,
-                endMillis = callEnd,
-                durationSeconds = match.durationSeconds
-            )
-        } else {
-            // This is an estimate; OFFHOOK may include dialing/ringing on some phones.
-            persistCallEnded()
+        if (match != null) {
+            // A matching call-log entry is the source of truth. Its duration
+            // excludes ringing time, so navigate as soon as this entry is available.
+            if (match.durationSeconds > 0L) {
+                val callEnd = match.dateMillis
+                val callStart = callEnd - match.durationSeconds * 1000L
+                persistCallEnded(
+                    connected = true,
+                    startMillis = callStart,
+                    endMillis = callEnd,
+                    durationSeconds = match.durationSeconds
+                )
+            } else {
+                persistCallEnded(
+                    connected = false,
+                    startMillis = 0L,
+                    endMillis = match.dateMillis,
+                    durationSeconds = 0L
+                )
+            }
+
+            sendCallEvent("ended")
+            mainHandler.postDelayed({ CallForegroundService.stop(this) }, 10_000L)
+            callEndResolutionStartedAt = 0L
+            return
         }
 
+        // Some Android devices write the call-log entry shortly after the call
+        // state becomes IDLE. Retry briefly rather than immediately saving an
+        // incorrect zero duration. Once the retry window expires, finish safely.
+        val elapsed = System.currentTimeMillis() - callEndResolutionStartedAt
+        if (elapsed < CALL_LOG_MAX_WAIT_MS) {
+            callEndResolutionScheduled = true
+            mainHandler.postDelayed({
+                callEndResolutionScheduled = false
+                resolveCallEnd()
+            }, CALL_LOG_RETRY_DELAY_MS)
+            return
+        }
+
+        persistCallEnded(
+            connected = false,
+            startMillis = 0L,
+            endMillis = System.currentTimeMillis(),
+            durationSeconds = 0L
+        )
         sendCallEvent("ended")
         mainHandler.postDelayed({ CallForegroundService.stop(this) }, 10_000L)
+        callEndResolutionStartedAt = 0L
     }
 
     private fun persistCallAttempt(responseId: Int, phone: String) {
@@ -370,7 +414,15 @@ class MainActivity : FlutterActivity() {
         session.put("status", "ended")
         session.put("call_end_ms", end)
         if (connected != null) session.put("connected", connected)
-        if (start > 0L) session.put("call_start_ms", start)
+        if (startMillis != null) {
+            if (startMillis > 0L) {
+                session.put("call_start_ms", startMillis)
+            } else {
+                session.put("call_start_ms", JSONObject.NULL)
+            }
+        } else if (start > 0L) {
+            session.put("call_start_ms", start)
+        }
 
         val duration = durationSeconds ?: if (start > 0L && end >= start) {
             (end - start) / 1000L

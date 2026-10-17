@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Permissions for cellular calls -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
@@ -12,9 +13,7 @@
     <!-- Android 13+ notification permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Optional: only if CallLogHelper legitimately needs call-log access
-         and the app complies with Google Play policy. -->
-    <!-- <uses-permission android:name="android.permission.READ_CALL_LOG" /> -->
+
 
     <application
         android:label="calling_app"

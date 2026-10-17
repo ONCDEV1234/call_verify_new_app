@@ -1,11 +1,9 @@
-
 package com.example.calling_app
 
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
-import android.net.Uri
 import android.provider.CallLog
 import android.telephony.PhoneNumberUtils
 import android.util.Log
@@ -20,6 +18,10 @@ import androidx.core.content.ContextCompat
 object CallLogHelper {
 
     private const val TAG = "CallLogHelper"
+
+    // Allow a small clock/launch delay, but never search several minutes back.
+    // A five-minute lookback can incorrectly match a previous call to the same number.
+    private const val ATTEMPT_TIME_TOLERANCE_MILLIS = 10_000L
 
     data class CallLogMatch(
         val number: String,
@@ -37,7 +39,6 @@ object CallLogHelper {
         attemptTimeMillis: Long,
         lookBackMillis: Long = 5 * 60 * 1000L
     ): CallLogMatch? {
-
         val permissionGranted =
             ContextCompat.checkSelfPermission(
                 context,
@@ -50,7 +51,13 @@ object CallLogHelper {
         }
 
         val targetNumber = normalizeNumber(phoneNumber)
-        if (targetNumber.isBlank()) return null
+        if (targetNumber.isBlank() || attemptTimeMillis <= 0L) return null
+
+        // Ignore the old broad lookback for matching. Only accept a record whose
+        // timestamp is close to this call attempt, so a previous call to the same
+        // number cannot be reused for the current session.
+        val earliestAllowedDate =
+            attemptTimeMillis - minOf(ATTEMPT_TIME_TOLERANCE_MILLIS, lookBackMillis)
 
         val projection = arrayOf(
             CallLog.Calls.NUMBER,
@@ -62,11 +69,10 @@ object CallLogHelper {
         val selection = "${CallLog.Calls.TYPE} = ? AND ${CallLog.Calls.DATE} >= ?"
         val selectionArgs = arrayOf(
             CallLog.Calls.OUTGOING_TYPE.toString(),
-            (attemptTimeMillis - lookBackMillis).toString()
+            earliestAllowedDate.toString()
         )
 
         val sortOrder = "${CallLog.Calls.DATE} DESC"
-
         var cursor: Cursor? = null
 
         return try {
@@ -94,20 +100,25 @@ object CallLogHelper {
                 return null
             }
 
-            while (cursor.moveToNext()) {
-                val loggedNumber =
-                    cursor.getString(numberIndex).orEmpty()
+            val now = System.currentTimeMillis()
 
+            while (cursor.moveToNext()) {
+                val loggedNumber = cursor.getString(numberIndex).orEmpty()
                 val dateMillis = cursor.getLong(dateIndex)
                 val durationSeconds = cursor.getLong(durationIndex)
                 val callType = cursor.getInt(typeIndex)
 
-                // Avoid accidentally matching a different outgoing call.
+                // Match the target number and the current attempt's time window.
                 if (
                     numbersMatch(targetNumber, normalizeNumber(loggedNumber)) &&
-                    dateMillis >= attemptTimeMillis - lookBackMillis &&
-                    dateMillis <= System.currentTimeMillis() + 30_000L
+                    dateMillis >= earliestAllowedDate &&
+                    dateMillis <= now + 30_000L
                 ) {
+                    Log.d(
+                        TAG,
+                        "Matched current call: date=$dateMillis, " +
+                                "duration=$durationSeconds, attempt=$attemptTimeMillis"
+                    )
                     return CallLogMatch(
                         number = loggedNumber,
                         dateMillis = dateMillis,
@@ -117,6 +128,11 @@ object CallLogHelper {
                 }
             }
 
+            Log.w(
+                TAG,
+                "No call-log match for current attempt. phone=$phoneNumber, " +
+                        "attempt=$attemptTimeMillis, earliestAllowed=$earliestAllowedDate"
+            )
             null
         } catch (e: SecurityException) {
             Log.e(TAG, "Call-log access denied", e)
@@ -140,7 +156,6 @@ object CallLogHelper {
         actual: String
     ): Boolean {
         if (expected.isBlank() || actual.isBlank()) return false
-
         if (expected == actual) return true
 
         // Allows local-vs-country-code representation differences.
