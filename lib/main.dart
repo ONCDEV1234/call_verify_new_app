@@ -25,7 +25,7 @@ class CallVerifyApp extends StatelessWidget {
     final auth = Get.find<AuthService>();
 
     return ScreenUtilInit(
-      designSize: const Size(360, 800),   // 👈 baseline design size
+      designSize: const Size(360, 800),
       minTextAdapt: true,
       splitScreenMode: true,
       builder: (context, child) {

@@ -1,5 +1,8 @@
-import 'dart:async';
 
+import 'dart:async';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 
@@ -33,8 +36,14 @@ class PostCallController extends GetxController {
     'Meet but not ask question',
   ];
 
+  // =========================================================
+  // OBSERVABLE STATE
+  // =========================================================
+
   final selectedStatus = RxnString();
+
   final isSubmitting = false.obs;
+  final isPickingAudio = false.obs;
   final errorMessage = ''.obs;
 
   final responseId = 0.obs;
@@ -44,15 +53,107 @@ class PostCallController extends GetxController {
   final callStartAt = Rxn<DateTime>();
   final callEndAt = Rxn<DateTime>();
 
-  late DateTime processStartedAt;
-
   final elapsedProcessDuration = 0.obs;
+
+  // =========================================================
+  // AUDIO ATTACHMENT
+  // =========================================================
+
+  /// Selected audio file from device storage.
+  final selectedAudioFile = Rxn<File>();
+
+  /// Original audio filename for displaying in the UI.
+  final selectedAudioName = RxnString();
+
+  /// Select one audio file from device storage.
+  Future<void> pickAudioFile() async {
+    if (isPickingAudio.value || isSubmitting.value) return;
+
+    try {
+      isPickingAudio.value = true;
+      errorMessage.value = '';
+
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        allowMultiple: false,
+      );
+
+      if (result == null || result.files.isEmpty) {
+        return;
+      }
+
+      final pickedFile = result.files.single;
+
+      final filePath = pickedFile.path;
+
+      if (filePath == null || filePath.trim().isEmpty) {
+        errorMessage.value =
+        'Unable to access the selected audio file.';
+        return;
+      }
+
+      final audioFile = File(filePath);
+
+      if (!await audioFile.exists()) {
+        errorMessage.value =
+        'Selected audio file does not exist.';
+        return;
+      }
+
+      final fileSize = await audioFile.length();
+
+      if (fileSize <= 0) {
+        errorMessage.value =
+        'Selected audio file is empty.';
+        return;
+      }
+
+      selectedAudioFile.value = audioFile;
+      selectedAudioName.value = pickedFile.name;
+
+      if (kDebugMode) {
+        debugPrint(
+          '[PostCall] Audio selected: ${pickedFile.name}',
+        );
+        debugPrint(
+          '[PostCall] Audio size: $fileSize bytes',
+        );
+      }
+    } catch (e) {
+      errorMessage.value =
+      'Unable to select audio file: $e';
+
+      if (kDebugMode) {
+        debugPrint('[PostCall] Audio picker error: $e');
+      }
+    } finally {
+      isPickingAudio.value = false;
+    }
+  }
+
+  /// Remove the currently selected audio attachment.
+  void removeAudioFile() {
+    selectedAudioFile.value = null;
+    selectedAudioName.value = null;
+
+    errorMessage.value = '';
+
+    if (kDebugMode) {
+      debugPrint('[PostCall] Audio attachment removed');
+    }
+  }
+
+  // =========================================================
+  // PROCESS TIMER
+  // =========================================================
 
   Timer? _processTimer;
 
   bool _processTimerStarted = false;
   bool _processDurationFrozen = false;
   bool _submissionSucceeded = false;
+
+  late DateTime processStartedAt;
 
   @override
   void onInit() {
@@ -106,6 +207,7 @@ class PostCallController extends GetxController {
 
   int _toInt(dynamic value) {
     if (value is int) return value;
+
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
@@ -143,6 +245,7 @@ class PostCallController extends GetxController {
     seconds < 0 ? 0 : seconds;
 
     _processDurationFrozen = true;
+
     _processTimer?.cancel();
     _processTimer = null;
 
@@ -154,6 +257,10 @@ class PostCallController extends GetxController {
     }
   }
 
+  // =========================================================
+  // CALL DETAILS
+  // =========================================================
+
   void updateCallDetails({
     required DateTime startedAt,
     required DateTime endedAt,
@@ -161,14 +268,23 @@ class PostCallController extends GetxController {
   }) {
     callStartAt.value = startedAt;
     callEndAt.value = endedAt;
+
     callDuration.value =
     durationSeconds < 0 ? 0 : durationSeconds;
   }
+
+  // =========================================================
+  // STATUS
+  // =========================================================
 
   void setStatus(String? value) {
     selectedStatus.value = value;
     errorMessage.value = '';
   }
+
+  // =========================================================
+  // SUBMIT CALL LOG
+  // =========================================================
 
   Future<bool> submitCallLog({
     required String remarks,
@@ -204,7 +320,8 @@ class PostCallController extends GetxController {
       final startedAt = callStartAt.value ?? processStartedAt;
       final endedAt = callEndAt.value ?? now;
 
-      final frozenProcessDuration = elapsedProcessDuration.value;
+      final frozenProcessDuration =
+          elapsedProcessDuration.value;
 
       final model = PostCallModel(
         responseId: responseId.value,
@@ -220,12 +337,22 @@ class PostCallController extends GetxController {
 
       if (kDebugMode) {
         debugPrint('[PostCall] Endpoint: $_endpoint');
-        debugPrint('[PostCall] Request: ${model.toJson()}');
+        debugPrint(
+          '[PostCall] Request: ${model.toMultipartFields()}',
+        );
+        debugPrint(
+          '[PostCall] Audio attached: '
+              '${selectedAudioFile.value != null}',
+        );
       }
 
-      final result = await _api.post(
+      // Submit using multipart/form-data.
+      // Audio attachment is optional.
+      final result = await _api.postMultipart(
         _endpoint,
-        model.toJson(),
+        model.toMultipartFields(),
+        file: selectedAudioFile.value,
+        fileField: 'file',
       );
 
       if (kDebugMode) {
@@ -233,6 +360,7 @@ class PostCallController extends GetxController {
       }
 
       _submissionSucceeded = true;
+
       return true;
     } on ApiException catch (e) {
       errorMessage.value = e.message;
@@ -248,9 +376,11 @@ class PostCallController extends GetxController {
     } on TimeoutException {
       errorMessage.value =
       'Request timed out. Please try again.';
+
       return false;
     } catch (e) {
-      errorMessage.value = 'Unable to submit call log: $e';
+      errorMessage.value =
+      'Unable to submit call log: $e';
 
       if (kDebugMode) {
         debugPrint('[PostCall] Error: $e');
@@ -261,6 +391,10 @@ class PostCallController extends GetxController {
       isSubmitting.value = false;
     }
   }
+
+  // =========================================================
+  // CLEANUP
+  // =========================================================
 
   @override
   void onClose() {

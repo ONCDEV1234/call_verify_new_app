@@ -27,13 +27,16 @@ class ProjectScreen extends StatelessWidget {
           snackPosition: SnackPosition.BOTTOM,
         );
       });
+
       return const Scaffold(
         backgroundColor: _bg,
         body: SizedBox.shrink(),
       );
     }
 
-    final c = Get.put(ProjectController(), tag: 'project');
+    final c = Get.isRegistered<ProjectController>(tag: 'project')
+        ? Get.find<ProjectController>(tag: 'project')
+        : Get.put(ProjectController(), tag: 'project');
 
     if (c.queue.value == null && !c.isLoading.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -49,18 +52,24 @@ class ProjectScreen extends StatelessWidget {
         elevation: 0,
         title: const Text(
           'Surveys',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
       body: SafeArea(
         child: Obx(() {
           if (c.isLoading.value) {
             return const Center(
-              child: CircularProgressIndicator(color: _primaryRed),
+              child: CircularProgressIndicator(
+                color: _primaryRed,
+              ),
             );
           }
 
           final err = c.errorMessage.value;
+
           if (err != null && err.isNotEmpty) {
             return _buildError(err, c, projectCode);
           }
@@ -114,6 +123,7 @@ class ProjectScreen extends StatelessWidget {
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 14),
 
                   if (c.surveys.isEmpty)
@@ -122,7 +132,7 @@ class ProjectScreen extends StatelessWidget {
                     ...c.surveys.map(
                           (s) => Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: _buildSurveyCard(s),
+                        child: _buildSurveyCard(s, c),
                       ),
                     ),
                 ],
@@ -134,109 +144,153 @@ class ProjectScreen extends StatelessWidget {
     );
   }
 
+  // ============================================================
+  // SURVEY CARD
+  // Name + Actual response count from API 2
+  // ============================================================
 
-  // SURVEY CARD — name + response count only
+  Widget _buildSurveyCard(Survey s, ProjectController c) {
+    return Obx(() {
+      final responseData = c.getResponses(s.surveyId);
 
-  Widget _buildSurveyCard(Survey s) {
-    final count = s.responses.length;
+      final count = responseData?.total ?? 0;
 
-    return InkWell(
-      onTap: () {
-        Get.toNamed(
-          AppRoutes.PROJECT_DETAIL,
-          arguments: s,
-        );
-      },
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 14,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 14,
-              spreadRadius: 0,
-              offset: const Offset(0, 4),
-            ),
-            BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 4,
-              spreadRadius: 0,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: _primaryRed.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(11),
+      final isLoading = c.isSurveyLoading(s.surveyId);
+
+      return InkWell(
+        onTap: () async {
+          // Load responses using the second API.
+          // Navigate only after the initial request completes.
+          await c.loadSurveyResponses(
+            s.surveyId,
+            reset: true,
+          );
+
+          if (c.getResponses(s.surveyId) == null) {
+            final error = c.getResponseError(s.surveyId);
+
+            Get.snackbar(
+              'Unable to load responses',
+              error ?? 'Please try again.',
+              snackPosition: SnackPosition.BOTTOM,
+            );
+
+            return;
+          }
+
+          Get.toNamed(
+            AppRoutes.PROJECT_DETAIL,
+            arguments: s,
+          );
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 14,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 14,
+                spreadRadius: 0,
+                offset: const Offset(0, 4),
               ),
-              child: const Icon(
-                Icons.assignment_rounded,
-                size: 20,
-                color: _primaryRed,
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 4,
+                spreadRadius: 0,
+                offset: const Offset(0, 1),
               ),
-            ),
-            const SizedBox(width: 12),
-
-            Expanded(
-              child: Text(
-                s.surveyTitle.isEmpty ? 'Untitled' : s.surveyTitle,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: _textBlack,
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: _primaryRed.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(
+                  Icons.assignment_rounded,
+                  size: 20,
+                  color: _primaryRed,
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
 
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 9,
-                vertical: 5,
-              ),
-              decoration: BoxDecoration(
-                color: _primaryRed.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.people_alt_rounded,
-                    size: 12,
-                    color: _primaryRed,
+              const SizedBox(width: 12),
+
+              Expanded(
+                child: Text(
+                  s.surveyTitle.isEmpty ? 'Untitled' : s.surveyTitle,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: _textBlack,
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '$count',
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
+                ),
+              ),
+
+              const SizedBox(width: 10),
+
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: _primaryRed.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.people_alt_rounded,
+                      size: 12,
                       color: _primaryRed,
                     ),
-                  ),
-                ],
+
+                    const SizedBox(width: 4),
+
+                    if (isLoading && responseData == null)
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5,
+                          color: _primaryRed,
+                        ),
+                      )
+                    else
+                      Text(
+                        '$count',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: _primaryRed,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
-  // EMPTY / ERROR
+  // ============================================================
+  // EMPTY STATE
+  // ============================================================
+
   Widget _buildEmptyState() {
     return Container(
       width: double.infinity,
@@ -247,18 +301,33 @@ class ProjectScreen extends StatelessWidget {
       ),
       child: const Column(
         children: [
-          Icon(Icons.inbox_rounded, size: 40, color: _textGrey),
+          Icon(
+            Icons.inbox_rounded,
+            size: 40,
+            color: _textGrey,
+          ),
           SizedBox(height: 10),
           Text(
             'No surveys in this project.',
-            style: TextStyle(fontSize: 13, color: _textGrey),
+            style: TextStyle(
+              fontSize: 13,
+              color: _textGrey,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildError(String msg, ProjectController c, String code) {
+  // ============================================================
+  // ERROR STATE
+  // ============================================================
+
+  Widget _buildError(
+      String msg,
+      ProjectController c,
+      String code,
+      ) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -278,7 +347,9 @@ class ProjectScreen extends StatelessWidget {
                 color: _primaryRed,
               ),
             ),
+
             const SizedBox(height: 16),
+
             Text(
               msg,
               textAlign: TextAlign.center,
@@ -288,14 +359,21 @@ class ProjectScreen extends StatelessWidget {
                 fontWeight: FontWeight.w500,
               ),
             ),
+
             const SizedBox(height: 18),
+
             OutlinedButton.icon(
               onPressed: () => c.loadQueue(code),
-              icon: const Icon(Icons.refresh_rounded, size: 16),
+              icon: const Icon(
+                Icons.refresh_rounded,
+                size: 16,
+              ),
               label: const Text('Retry'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: _primaryRed,
-                side: const BorderSide(color: _primaryRed),
+                side: const BorderSide(
+                  color: _primaryRed,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),

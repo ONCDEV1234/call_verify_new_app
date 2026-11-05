@@ -270,6 +270,111 @@ class _PostCallFormScreenState
 
                 const SizedBox(height: 16),
 
+                // AUDIO ATTACHMENT (OPTIONAL)
+                _sectionCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Audio Attachment (Optional)',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Attach an audio recording from your phone if needed.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (controller.selectedAudioFile.value == null)
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: controller.isPickingAudio.value ||
+                                controller.isSubmitting.value
+                                ? null
+                                : controller.pickAudioFile,
+                            icon: controller.isPickingAudio.value
+                                ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                                : const Icon(Icons.audio_file),
+                            label: Text(
+                              controller.isPickingAudio.value
+                                  ? 'Selecting audio...'
+                                  : 'Choose Audio File',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFD50000),
+                              side: const BorderSide(
+                                color: Color(0xFFD50000),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.red.shade100,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.audio_file,
+                                color: Color(0xFFD50000),
+                                size: 30,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  controller.selectedAudioName.value ??
+                                      'Audio file selected',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: controller.isSubmitting.value
+                                    ? null
+                                    : controller.removeAudioFile,
+                                icon: const Icon(
+                                  Icons.close,
+                                  color: Colors.red,
+                                ),
+                                tooltip: 'Remove audio',
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
                 // DURATION DETAILS
                 _sectionCard(
                   child: Column(
@@ -338,7 +443,8 @@ class _PostCallFormScreenState
                 SizedBox(
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: controller.isSubmitting.value
+                    onPressed: controller.isSubmitting.value ||
+                        controller.isPickingAudio.value
                         ? null
                         : handleSubmit,
                     style: ElevatedButton.styleFrom(

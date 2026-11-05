@@ -1,4 +1,3 @@
-
 class ProjectQueueResponse {
   final Project project;
   final List<Survey> surveys;
@@ -9,17 +8,17 @@ class ProjectQueueResponse {
   });
 
   factory ProjectQueueResponse.fromJson(Map<String, dynamic> json) {
-    final projectMap = json['project'];
-    final surveysList = json['surveys'];
+    final projectJson = json['project'];
+    final surveyJson = json['surveys'];
 
     return ProjectQueueResponse(
       project: Project.fromJson(
-        projectMap is Map
-            ? Map<String, dynamic>.from(projectMap)
+        projectJson is Map
+            ? Map<String, dynamic>.from(projectJson)
             : <String, dynamic>{},
       ),
-      surveys: (surveysList is List)
-          ? surveysList
+      surveys: surveyJson is List
+          ? surveyJson
           .whereType<Map>()
           .map((e) => Survey.fromJson(Map<String, dynamic>.from(e)))
           .toList()
@@ -39,8 +38,8 @@ class Project {
 
   factory Project.fromJson(Map<String, dynamic> json) {
     return Project(
-      code: (json['code'] as num?)?.toInt() ?? 0,
-      name: json['name']?.toString() ?? '',
+      code: _toInt(json['code']),
+      name: _toStringValue(json['name']),
     );
   }
 }
@@ -61,20 +60,80 @@ class Survey {
   });
 
   factory Survey.fromJson(Map<String, dynamic> json) {
-    final fieldsList = json['fields'];
-    final responsesList = json['responses'];
-
     return Survey(
-      surveyId: json['survey_id']?.toString() ?? '',
-      surveyTitle: json['survey_title']?.toString() ?? '',
-      mobileFieldName: json['mobile_field_name']?.toString() ?? '',
-      fields: (fieldsList is List)
-          ? fieldsList.map((e) => e.toString()).toList()
-          : <String>[],
-      responses: (responsesList is List)
-          ? responsesList
+      surveyId: _toStringValue(json['survey_id']),
+      surveyTitle: _toStringValue(json['survey_title']),
+      mobileFieldName: _toStringValue(json['mobile_field_name']),
+      fields: _toStringList(json['fields']),
+      responses: json['responses'] is List
+          ? (json['responses'] as List)
           .whereType<Map>()
-          .map((e) => SurveyResponse.fromJson(Map<String, dynamic>.from(e)))
+          .map((e) => SurveyResponse.fromJson(
+        Map<String, dynamic>.from(e),
+      ))
+          .toList()
+          : <SurveyResponse>[],
+    );
+  }
+}
+
+class SurveyResponsesResponse {
+  final String surveyId;
+  final String surveyTitle;
+  final String mobileFieldName;
+  final List<String> fields;
+
+  /// API-provided dropdown values for each field.
+  /// Example: { "what_is_your_name": ["Gourav", "Aman"] }
+  final Map<String, List<String>> fieldValues;
+
+  final int total;
+  final int skip;
+  final int limit;
+  final List<SurveyResponse> items;
+
+  const SurveyResponsesResponse({
+    required this.surveyId,
+    required this.surveyTitle,
+    required this.mobileFieldName,
+    required this.fields,
+    this.fieldValues = const <String, List<String>>{},
+    required this.total,
+    required this.skip,
+    required this.limit,
+    required this.items,
+  });
+
+  bool get hasMore => skip + items.length < total;
+  int get loadedCount => items.length;
+
+  factory SurveyResponsesResponse.fromJson(Map<String, dynamic> json) {
+    final rawFieldValues = json['field_values'];
+    final parsedFieldValues = <String, List<String>>{};
+
+    if (rawFieldValues is Map) {
+      rawFieldValues.forEach((key, value) {
+        parsedFieldValues[key.toString()] = _toStringList(value);
+      });
+    }
+
+    final rawItems = json['items'];
+
+    return SurveyResponsesResponse(
+      surveyId: _toStringValue(json['survey_id']),
+      surveyTitle: _toStringValue(json['survey_title']),
+      mobileFieldName: _toStringValue(json['mobile_field_name']),
+      fields: _toStringList(json['fields']),
+      fieldValues: parsedFieldValues,
+      total: _toInt(json['total']),
+      skip: _toInt(json['skip']),
+      limit: _toInt(json['limit'], fallback: 50),
+      items: rawItems is List
+          ? rawItems
+          .whereType<Map>()
+          .map((e) => SurveyResponse.fromJson(
+        Map<String, dynamic>.from(e),
+      ))
           .toList()
           : <SurveyResponse>[],
     );
@@ -97,20 +156,62 @@ class SurveyResponse {
   });
 
   factory SurveyResponse.fromJson(Map<String, dynamic> json) {
-    final answersMap = json['answers'];
-    final lastCallMap = json['last_call'];
+    final rawAnswers = json['answers'];
 
     return SurveyResponse(
-      responseId: (json['response_id'] as num?)?.toInt() ?? 0,
-      phone: json['phone']?.toString() ?? '',
-      answers: answersMap is Map
-          ? Map<String, dynamic>.from(answersMap)
+      responseId: _toInt(json['response_id']),
+      phone: _toStringValue(json['phone']),
+      answers: rawAnswers is Map
+          ? Map<String, dynamic>.from(rawAnswers)
           : <String, dynamic>{},
-      createdAt: json['created_at']?.toString() ?? '',
-      lastCall: (lastCallMap is Map && lastCallMap.isNotEmpty)
-          ? LastCall.fromJson(Map<String, dynamic>.from(lastCallMap))
+      createdAt: _toStringValue(json['created_at']),
+      lastCall: json['last_call'] is Map
+          ? LastCall.fromJson(
+        Map<String, dynamic>.from(json['last_call']),
+      )
           : null,
     );
+  }
+
+  String get name => _toStringValue(answers['what_is_your_name']);
+  String get candidate => _toStringValue(answers['vendor_name']);
+  String get gender => _toStringValue(answers['gender']);
+  String get acName => _toStringValue(answers['ac_name']);
+  String get user => _toStringValue(answers['what_is_your_mobile_number']);
+
+  String get village {
+    final value = answers['select_state'];
+    if (value is List) return value.map((e) => e.toString()).join(', ');
+    return _toStringValue(value);
+  }
+
+  String get slotNo => _toStringValue(answers['what_is_your_age']);
+  String get block => _toStringValue(answers['select_country']);
+  String get passFailStatus => lastCall?.status ?? 'Pending';
+  String get extraDetails => '—';
+
+  dynamic getAnswer(String key) => answers[key];
+
+  static String formatAnswer(dynamic value) {
+    if (value == null) return '—';
+
+    if (value is String) {
+      return value.trim().isEmpty ? '—' : value;
+    }
+
+    if (value is List) {
+      if (value.isEmpty) return '—';
+      return value.map(formatAnswer).where((e) => e != '—').join(', ');
+    }
+
+    if (value is Map) {
+      if (value.isEmpty) return '—';
+      return value.entries
+          .map((e) => '${e.key}: ${formatAnswer(e.value)}')
+          .join('\n');
+    }
+
+    return value.toString();
   }
 }
 
@@ -129,10 +230,39 @@ class LastCall {
 
   factory LastCall.fromJson(Map<String, dynamic> json) {
     return LastCall(
-      status: json['status']?.toString() ?? '',
-      callerName: json['caller_name']?.toString() ?? '',
-      createdAt: json['created_at']?.toString() ?? '',
-      callDuration: (json['call_duration'] as num?)?.toInt() ?? 0,
+      status: _toStringValue(json['status']),
+      callerName: _toStringValue(json['caller_name']),
+      createdAt: _toStringValue(json['created_at']),
+      callDuration: _toInt(json['call_duration']),
     );
   }
+
+  String get formattedDuration {
+    final seconds = callDuration;
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final remainingSeconds = seconds % 60;
+
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:'
+          '${minutes.toString().padLeft(2, '0')}:'
+          '${remainingSeconds.toString().padLeft(2, '0')}';
+    }
+
+    return '${minutes.toString().padLeft(2, '0')}:'
+        '${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+}
+
+int _toInt(dynamic value, {int fallback = 0}) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+String _toStringValue(dynamic value) => value?.toString() ?? '';
+
+List<String> _toStringList(dynamic value) {
+  if (value is! List) return <String>[];
+  return value.map((e) => e?.toString() ?? '').toList();
 }

@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kDebugMode, VoidCallback;
+import 'package:flutter/foundation.dart' show kDebugMode, VoidCallback, debugPrint;
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -88,9 +88,11 @@ class ApiProvider extends GetxService {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
+
     if (hasToken) {
       headers['Authorization'] = 'Bearer $_authToken';
     }
+
     return headers;
   }
 
@@ -205,10 +207,107 @@ class ApiProvider extends GetxService {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // MULTIPART POST — used for file uploads (e.g. post-call audio)
+  // ═══════════════════════════════════════════════════════════
+  Future<Map<String, dynamic>> postMultipart(
+      String url,
+      Map<String, String> fields, {
+        File? file,
+        String fileField = 'file',
+      }) async {
+    final fullUrl = '$baseUrl$url';
+
+    _log('🌐 [MULTIPART POST] $fullUrl');
+    _log('📤 [MULTIPART POST] Fields: $fields');
+
+    try {
+      final request = http.MultipartRequest('POST', Uri.parse(fullUrl));
+
+      // Do not set Content-Type manually. MultipartRequest creates the
+      // multipart/form-data header with the correct boundary automatically.
+      request.headers['Accept'] = 'application/json';
+
+      if (hasToken) {
+        request.headers['Authorization'] = 'Bearer $_authToken';
+      }
+
+      // Add text fields. Optional API values can be sent as empty strings.
+      request.fields.addAll(fields);
+
+      // Add the selected file only when the user has attached one.
+      if (file != null) {
+        if (!await file.exists()) {
+          throw ApiException('Selected audio file does not exist.');
+        }
+
+        final fileLength = await file.length();
+
+        if (fileLength <= 0) {
+          throw ApiException('Selected audio file is empty.');
+        }
+
+        final extension = file.path.split('.').last.toLowerCase();
+
+        http.MediaType? mimeType;
+
+        if (extension == 'mp3') {
+          mimeType = http.MediaType('audio', 'mpeg');
+        } else if (extension == 'm4a') {
+          mimeType = http.MediaType('audio', 'x-m4a');
+        }
+
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            fileField,
+            file.path,
+            filename: file.uri.pathSegments.last,
+            contentType: mimeType,
+          ),
+        );
+
+        _log('📎 File attached: ${file.uri.pathSegments.last}');
+        _log('📎 MIME type: ${mimeType ?? 'auto-detected'}');
+      }
+
+      final streamedResponse = await request
+          .send()
+          .timeout(const Duration(seconds: 120));
+
+      // Apply a timeout to response-body reading as well as request sending.
+      final response = await http
+          .Response.fromStream(streamedResponse)
+          .timeout(const Duration(seconds: 120));
+
+      _log('📥 [MULTIPART POST] ${response.statusCode}');
+      return _handleResponse(response);
+    } on ApiException {
+      rethrow;
+    } on TimeoutException {
+      throw ApiException(
+        'Request timed out. Please try again.',
+        isNetworkError: true,
+      );
+    } on SocketException catch (e) {
+      throw ApiException(
+        'No internet: ${e.message}',
+        isNetworkError: true,
+      );
+    } on http.ClientException catch (e) {
+      throw ApiException(
+        'Connection failed: ${e.message}',
+        isNetworkError: true,
+      );
+    } catch (e) {
+      throw ApiException('Unexpected error: $e');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // RESPONSE HANDLER
   // ═══════════════════════════════════════════════════════════
   Map<String, dynamic> _handleResponse(http.Response response) {
     Map<String, dynamic> body = {};
+
     if (response.body.isNotEmpty) {
       try {
         final decoded = jsonDecode(response.body);
@@ -228,13 +327,14 @@ class ApiProvider extends GetxService {
 
     if (code == 401) {
       _log('🔒 [API] 401 UNAUTHORIZED');
-      _notifyUnauthorized(); // 👈 fires AuthService._onUnauthorized
+      _notifyUnauthorized();
       throw ApiException(
         'Unauthorized: $detail',
         statusCode: 401,
         isAuthError: true,
       );
     }
+
     if (code == 403) {
       throw ApiException(
         'Forbidden: $detail',
@@ -242,9 +342,11 @@ class ApiProvider extends GetxService {
         isAuthError: true,
       );
     }
+
     if (code >= 400 && code < 500) {
       throw ApiException('Client error ($code): $detail', statusCode: code);
     }
+
     if (code >= 500) {
       throw ApiException('Server error ($code): $detail', statusCode: code);
     }
@@ -256,7 +358,7 @@ class ApiProvider extends GetxService {
   // LOG
   // ═══════════════════════════════════════════════════════════
   void _log(String message) {
-    if (kDebugMode) print(message);
+    if (kDebugMode) debugPrint(message);
   }
 }
 
